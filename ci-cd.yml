@@ -1,0 +1,36 @@
+# ── STAGE 1: BUILD ────────────────────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# Copiar archivos de proyecto y restaurar dependencias
+COPY ScaffoldingSystem.sln ./
+COPY ScaffoldingSystem.Domain/ScaffoldingSystem.Domain.csproj ./ScaffoldingSystem.Domain/
+COPY ScaffoldingSystem.Application/ScaffoldingSystem.Application.csproj ./ScaffoldingSystem.Application/
+COPY ScaffoldingSystem.Infrastructure/ScaffoldingSystem.Infrastructure.csproj ./ScaffoldingSystem.Infrastructure/
+COPY ScaffoldingSystem.WebAPI/ScaffoldingSystem.WebAPI.csproj ./ScaffoldingSystem.WebAPI/
+
+RUN dotnet restore
+
+# Copiar todo el código fuente y compilar
+COPY . .
+RUN dotnet publish ScaffoldingSystem.WebAPI/ScaffoldingSystem.WebAPI.csproj \
+    --configuration Release \
+    --output /app/publish \
+    --no-restore
+
+# ── STAGE 2: RUNTIME ──────────────────────────────────────────────────────────
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+WORKDIR /app
+
+# Copiar solo los binarios publicados
+COPY --from=build /app/publish .
+
+# Puerto expuesto
+EXPOSE 8080
+EXPOSE 8081
+
+# Variables de entorno (se sobreescriben al correr el contenedor)
+ENV ASPNETCORE_ENVIRONMENT=Production
+ENV ASPNETCORE_URLS=http://+:8080
+
+ENTRYPOINT ["dotnet", "ScaffoldingSystem.WebAPI.dll"]

@@ -1,0 +1,262 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using ScaffoldingSystem.Application.DTOs;
+using ScaffoldingSystem.Application.Interfaces;
+using ScaffoldingSystem.Domain.Enums;
+
+namespace ScaffoldingSystem.WebAPI.Controllers;
+
+// ── AUTH CONTROLLER ───────────────────────────────────────────────────────────
+[ApiController]
+[Route("api/[controller]")]
+public class AuthController : ControllerBase
+{
+    private readonly IAuthService _authService;
+    public AuthController(IAuthService authService) => _authService = authService;
+
+    /// <summary>Iniciar sesión y obtener token JWT</summary>
+    [HttpPost("login")]
+    [AllowAnonymous]
+    public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginRequest request)
+    {
+        var result = await _authService.LoginAsync(request);
+        return Ok(result);
+    }
+}
+
+// ── USERS CONTROLLER ──────────────────────────────────────────────────────────
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class UsersController : ControllerBase
+{
+    private readonly IUserService _userService;
+    public UsersController(IUserService userService) => _userService = userService;
+
+    /// <summary>Listar todos los usuarios (solo Admin)</summary>
+    [HttpGet]
+    [Authorize(Roles = "Administrador")]
+    public async Task<ActionResult<IEnumerable<UserDto>>> GetAll()
+        => Ok(await _userService.GetAllAsync());
+
+    /// <summary>Obtener usuario por ID</summary>
+    [HttpGet("{id:int}")]
+    [Authorize(Roles = "Administrador")]
+    public async Task<ActionResult<UserDto>> GetById(int id)
+    {
+        var user = await _userService.GetByIdAsync(id);
+        return user is null ? NotFound() : Ok(user);
+    }
+
+    /// <summary>Crear nuevo usuario (solo Admin)</summary>
+    [HttpPost]
+    [Authorize(Roles = "Administrador")]
+    public async Task<ActionResult<UserDto>> Create([FromBody] CreateUserRequest request)
+    {
+        var user = await _userService.CreateUserAsync(request);
+        return CreatedAtAction(nameof(GetById), new { id = user.Id }, user);
+    }
+
+    /// <summary>Actualizar usuario</summary>
+    [HttpPut("{id:int}")]
+    [Authorize(Roles = "Administrador")]
+    public async Task<ActionResult<UserDto>> Update(int id, [FromBody] UpdateUserRequest request)
+        => Ok(await _userService.UpdateAsync(id, request));
+
+    /// <summary>Desactivar usuario</summary>
+    [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Administrador")]
+    public async Task<IActionResult> Deactivate(int id)
+    {
+        await _userService.DeactivateAsync(id);
+        return NoContent();
+    }
+
+    /// <summary>Obtener usuarios por rol</summary>
+    [HttpGet("by-role/{role}")]
+    [Authorize(Roles = "Administrador")]
+    public async Task<ActionResult<IEnumerable<UserDto>>> GetByRole(UserRole role)
+        => Ok(await _userService.GetByRoleAsync(role));
+}
+
+// ── SCAFFOLDINGS CONTROLLER ───────────────────────────────────────────────────
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class ScaffoldingsController : ControllerBase
+{
+    private readonly IScaffoldingService _service;
+    public ScaffoldingsController(IScaffoldingService service) => _service = service;
+
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<ScaffoldingDto>>> GetAll()
+        => Ok(await _service.GetAllAsync());
+
+    [HttpGet("available")]
+    public async Task<ActionResult<IEnumerable<ScaffoldingDto>>> GetAvailable()
+        => Ok(await _service.GetAvailableAsync());
+
+    [HttpGet("{id:int}")]
+    public async Task<ActionResult<ScaffoldingDto>> GetById(int id)
+    {
+        var s = await _service.GetByIdAsync(id);
+        return s is null ? NotFound() : Ok(s);
+    }
+
+    [HttpPost]
+    [Authorize(Roles = "Administrador,Inspector")]
+    public async Task<ActionResult<ScaffoldingDto>> Create([FromBody] CreateScaffoldingRequest request)
+    {
+        var s = await _service.CreateAsync(request);
+        return CreatedAtAction(nameof(GetById), new { id = s.Id }, s);
+    }
+
+    [HttpPut("{id:int}")]
+    [Authorize(Roles = "Administrador,Inspector")]
+    public async Task<ActionResult<ScaffoldingDto>> Update(int id, [FromBody] UpdateScaffoldingRequest request)
+        => Ok(await _service.UpdateAsync(id, request));
+
+    [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Administrador")]
+    public async Task<IActionResult> Delete(int id)
+    {
+        await _service.DeleteAsync(id);
+        return NoContent();
+    }
+}
+
+// ── RENTALS CONTROLLER ────────────────────────────────────────────────────────
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class RentalsController : ControllerBase
+{
+    private readonly IRentalService _service;
+    public RentalsController(IRentalService service) => _service = service;
+
+    [HttpGet]
+    [Authorize(Roles = "Administrador,Arrendatario,Despachador")]
+    public async Task<ActionResult<IEnumerable<RentalDto>>> GetAll()
+        => Ok(await _service.GetAllAsync());
+
+    [HttpGet("{id:int}")]
+    public async Task<ActionResult<RentalDto>> GetById(int id)
+    {
+        var r = await _service.GetByIdAsync(id);
+        return r is null ? NotFound() : Ok(r);
+    }
+
+    [HttpGet("my-rentals")]
+    [Authorize(Roles = "Arrendatario")]
+    public async Task<ActionResult<IEnumerable<RentalDto>>> GetMyRentals()
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        return Ok(await _service.GetByClientAsync(userId));
+    }
+
+    [HttpPost]
+    [Authorize(Roles = "Administrador,Arrendatario")]
+    public async Task<ActionResult<RentalDto>> Create([FromBody] CreateRentalRequest request)
+    {
+        var r = await _service.CreateAsync(request);
+        return CreatedAtAction(nameof(GetById), new { id = r.Id }, r);
+    }
+
+    [HttpPatch("{id:int}/status")]
+    [Authorize(Roles = "Administrador")]
+    public async Task<ActionResult<RentalDto>> UpdateStatus(int id, [FromBody] UpdateRentalStatusRequest request)
+        => Ok(await _service.UpdateStatusAsync(id, request));
+}
+
+// ── DISPATCHES CONTROLLER ─────────────────────────────────────────────────────
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class DispatchesController : ControllerBase
+{
+    private readonly IDispatchService _service;
+    public DispatchesController(IDispatchService service) => _service = service;
+
+    [HttpGet("pending")]
+    [Authorize(Roles = "Administrador,Despachador")]
+    public async Task<ActionResult<IEnumerable<DispatchDto>>> GetPending()
+        => Ok(await _service.GetPendingAsync());
+
+    [HttpGet("{id:int}")]
+    public async Task<ActionResult<DispatchDto>> GetById(int id)
+    {
+        var d = await _service.GetByIdAsync(id);
+        return d is null ? NotFound() : Ok(d);
+    }
+
+    [HttpPost]
+    [Authorize(Roles = "Despachador,Administrador")]
+    public async Task<ActionResult<DispatchDto>> Create([FromBody] CreateDispatchRequest request)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var d = await _service.CreateAsync(request, userId);
+        return CreatedAtAction(nameof(GetById), new { id = d.Id }, d);
+    }
+
+    [HttpPatch("{id:int}/delivered")]
+    [Authorize(Roles = "Despachador,Administrador")]
+    public async Task<ActionResult<DispatchDto>> MarkDelivered(int id)
+        => Ok(await _service.MarkAsDeliveredAsync(id));
+}
+
+// ── RECEPTIONS CONTROLLER ─────────────────────────────────────────────────────
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class ReceptionsController : ControllerBase
+{
+    private readonly IReceptionService _service;
+    public ReceptionsController(IReceptionService service) => _service = service;
+
+    [HttpGet("by-dispatch/{dispatchId:int}")]
+    public async Task<ActionResult<ReceptionDto>> GetByDispatch(int dispatchId)
+    {
+        var r = await _service.GetByDispatchAsync(dispatchId);
+        return r is null ? NotFound() : Ok(r);
+    }
+
+    [HttpPost]
+    [Authorize(Roles = "Receptor,Administrador")]
+    public async Task<ActionResult<ReceptionDto>> Create([FromBody] CreateReceptionRequest request)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var r = await _service.CreateAsync(request, userId);
+        return CreatedAtAction(nameof(GetByDispatch), new { dispatchId = r.DispatchId }, r);
+    }
+}
+
+// ── INSPECTIONS CONTROLLER ────────────────────────────────────────────────────
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class InspectionsController : ControllerBase
+{
+    private readonly IInspectionService _service;
+    public InspectionsController(IInspectionService service) => _service = service;
+
+    [HttpGet("scaffolding/{scaffoldingId:int}")]
+    public async Task<ActionResult<IEnumerable<InspectionDto>>> GetByScaffolding(int scaffoldingId)
+        => Ok(await _service.GetByScaffoldingAsync(scaffoldingId));
+
+    [HttpGet("scaffolding/{scaffoldingId:int}/last")]
+    public async Task<ActionResult<InspectionDto>> GetLast(int scaffoldingId)
+    {
+        var i = await _service.GetLastAsync(scaffoldingId);
+        return i is null ? NotFound() : Ok(i);
+    }
+
+    [HttpPost]
+    [Authorize(Roles = "Inspector,Administrador")]
+    public async Task<ActionResult<InspectionDto>> Create([FromBody] CreateInspectionRequest request)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var i = await _service.CreateAsync(request, userId);
+        return Ok(i);
+    }
+}
